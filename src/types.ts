@@ -59,7 +59,9 @@ export interface Pair {
   pairCreatedAt?: number;
 }
 
-export enum Emotion {
-  Cheer = "cheer",
-  Idle = "idle",
-}
+export type Message = {
+  message: string;
+  timestamp: number;
+  onchain: boolean;
+  tweeted: boolean;
+};

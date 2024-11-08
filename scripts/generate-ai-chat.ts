@@ -1,14 +1,29 @@
-const queryModel = async (userPrompt: string) => {
-  const prompt = `${marketData}\n\n${userPrompt}`; // Append market data to the prompt
+import { Message } from "../src/types";
+import { openai, redis } from "../src/utils";
 
-  const response = await openai.createCompletion({
+const AI_PROMPT = "Just tell me what comes to your mind.";
+
+const queryModel = async (userPrompt: string) => {
+  await redis.connect();
+  const currentMemory = (await redis.get("short-term-memory")) ?? "";
+  const prompt = `${currentMemory}\n\n${userPrompt}`; // Append market data to the prompt
+
+  const chatCompletion = await openai.chat.completions.create({
     model: "fine-tuned-model-id", // Use your fine-tuned model ID
-    prompt: prompt,
-    max_tokens: 100,
+    messages: [{ role: "user", content: prompt }],
   });
 
-  console.log(response.data.choices[0].text);
+  const response = chatCompletion.choices[0].message.content ?? "";
+  const messsageObject: Message = {
+    message: response,
+    timestamp: Date.now(),
+    tweeted: false,
+    onchain: false,
+  };
+  await redis.rPush("message_history", JSON.stringify(messsageObject));
+
+  await redis.disconnect();
 };
 
 // Example call to queryModel
-queryModel("What's the latest trend in the market?");
+queryModel(AI_PROMPT);
