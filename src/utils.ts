@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { createClient } from "redis";
 import { TwitterApi } from "twitter-api-v2";
 import dotenv from "dotenv";
+import { BLOB_PROFILE } from "../scripts/blob-info";
 
 dotenv.config();
 
@@ -40,11 +41,19 @@ export async function postTweet(text: string) {
 
 export async function fetchMentions() {
   try {
+    await redis.connect();
+    const since_id = (await redis.get("last_mention_id")) ?? "0";
+    await redis.disconnect();
+
     // Fetch recent mentions (limit: 5 for example)
     const { data: mentions } = await twitter.v2.userMentionTimeline(
-      "YOUR_USER_ID",
+      (
+        await twitter.v2.me()
+      ).data.id,
       {
         max_results: 5,
+        expansions: "author_id",
+        since_id,
       }
     );
 
@@ -71,11 +80,25 @@ export async function replyToMention(
 
 export async function replyToAllMentions() {
   const mentions = await fetchMentions();
+  console.log(mentions.length);
+  if (mentions[0]) {
+    await redis.connect();
+    await redis.set("last_mention_id", mentions[0].id);
+    await redis.disconnect();
+  }
   for (const mention of mentions) {
     const tweetId = mention.id;
+    console.log(tweetId);
     const username = mention.author_id ?? "";
-    const replyText = `@${username} Thanks for the mention!`;
+    console.log(mention.text);
+    console.log(`mention: ${mention.author_id}`);
+    const replyText = `${await queryModel(`
+      Now, someone asked you as below:
+      "${mention.text}"
 
+      Respond this with your current feeling at your current growth level, Blob.
+      `)}`;
+    console.log(replyText);
     await replyToMention(tweetId, username, replyText);
   }
 }
@@ -93,3 +116,70 @@ export async function saveTokenPriceChange(value: number) {
   await redis.set("token_price_change", value);
   await redis.disconnect();
 }
+
+function generateExcitementPrompt(
+  oldTokenPrice: number,
+  newTokenPrice: number,
+  oldTreasuryValue: number,
+  newTreasuryValue: number,
+  userPrompt: string
+) {
+  const recentInfo = `
+    Now, here is latest information:
+    oldTokenPrice: ${oldTokenPrice}
+    newTokenPrice: ${newTokenPrice}
+    oldTreasuryValue: ${oldTreasuryValue}
+    newTreasuryValue: ${newTreasuryValue} 
+  `;
+
+  return `
+  ${recentInfo}
+  ${BLOB_PROFILE}
+  ${userPrompt}
+  `;
+}
+
+export const queryModel = async (userPrompt: string) => {
+  await redis.connect();
+  const marketTrending = (await redis.get("market_trending")) ?? "";
+  const oldTreasuryValue = Number((await redis.get("old_treasury_value")) ?? 0);
+  const currentTreasuryValue = Number((await redis.get("treasury_value")) ?? 0);
+  const oldTokenPrice = Number((await redis.get("old_token_price")) ?? 0);
+  const currentTokenPrice = Number((await redis.get("token_price")) ?? 0);
+
+  const prompt = generateExcitementPrompt(
+    oldTokenPrice,
+    currentTokenPrice,
+    oldTreasuryValue,
+    currentTreasuryValue,
+    userPrompt
+  )!;
+
+  const chatCompletion = await openai.chat.completions.create({
+    model: "ft:gpt-3.5-turbo-0125:personal::ASlClHIN",
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: prompt,
+          },
+        ],
+      },
+    ],
+    temperature: 1,
+    max_tokens: 2048,
+    top_p: 1,
+    frequency_penalty: 0,
+    presence_penalty: 0,
+    response_format: {
+      type: "text",
+    },
+  });
+
+  const message = chatCompletion.choices[0].message.content ?? "";
+  await redis.disconnect();
+
+  return message;
+};

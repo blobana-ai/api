@@ -9,7 +9,7 @@ async () => {
       console.log("Last message is not tweeted yet. Skipping.");
       return;
     }
-    if (!messageObj.onchain) {
+    if (messageObj.onchain) {
       console.log("Last message is already on chain. Skipping.");
       return;
     }
