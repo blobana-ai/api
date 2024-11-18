@@ -1,8 +1,6 @@
 export interface PairsResponse {
   schemaVersion: string;
-  /** @deprecated use pairs field instead */
-  pair: Pair | null;
-  pairs: Pair[] | null;
+  pairs: Pair[];
 }
 
 export interface Pair {
@@ -10,53 +8,41 @@ export interface Pair {
   dexId: string;
   url: string;
   pairAddress: string;
+  labels: [string];
   baseToken: {
     address: string;
     name: string;
     symbol: string;
   };
   quoteToken: {
+    address: string;
+    name: string;
     symbol: string;
   };
   priceNative: string;
-  priceUsd?: string;
-  txns: {
-    m5: {
-      buys: number;
-      sells: number;
-    };
-    h1: {
-      buys: number;
-      sells: number;
-    };
-    h6: {
-      buys: number;
-      sells: number;
-    };
-    h24: {
-      buys: number;
-      sells: number;
-    };
-  };
-  volume: {
-    m5: number;
-    h1: number;
-    h6: number;
-    h24: number;
-  };
-  priceChange: {
-    m5: number;
-    h1: number;
-    h6: number;
-    h24: number;
-  };
-  liquidity?: {
-    usd?: number;
+  priceUsd: string;
+  liquidity: {
+    usd: number;
     base: number;
     quote: number;
   };
-  fdv?: number;
-  pairCreatedAt?: number;
+  fdv: number;
+  marketCap: number;
+  info: {
+    imageUrl: string;
+    websites: [
+      {
+        url: string;
+      }
+    ];
+    socials: [
+      {
+        platform: string;
+        handle: string;
+      }
+    ];
+  };
+  boosts: {};
 }
 
 export type Message = {
@@ -64,8 +50,13 @@ export type Message = {
   timestamp: number;
   onchain: boolean;
   tweeted: boolean;
+  tweetId: string;
   emotion: string;
   growth: string;
   blocknumber: number;
   txHash: string;
+  price: string;
+  mcap: number;
+  holders: number;
+  treasury: number;
 };

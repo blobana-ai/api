@@ -13,6 +13,11 @@ import {
   Keypair,
 } from "@solana/web3.js";
 import * as bip39 from "bip39";
+import * as anchor from "@coral-xyz/anchor";
+import { Idl } from "@coral-xyz/anchor";
+
+import idlJson from "./memo-idl.json";
+const idl = idlJson as Idl;
 
 dotenv.config();
 
@@ -44,38 +49,48 @@ function getKeypairFromSeed(seedPhrase: string) {
 
   return keypair;
 }
+
+export async function getBlockNumber() {
+  const connection = new Connection(DEVNET_RPC_URL, "confirmed");
+
+  const blockNumber = await connection.getBlockHeight();
+
+  return blockNumber;
+}
+
 export async function submitOnchain(message: string) {
   const connection = new Connection(DEVNET_RPC_URL, "confirmed");
 
+  // Set up the provider
+  const provider = new anchor.AnchorProvider(
+    connection,
+    new anchor.Wallet(SENDER_KEYPAIR),
+    {
+      preflightCommitment: "processed",
+    }
+  );
+  anchor.setProvider(provider);
+
+  // Load the program
+  const program = new anchor.Program(idl, provider);
+
   // Convert message to bytes
   const memoData = Buffer.from(message, "utf-8");
-
-  // Create the transaction instruction
-  const instruction = new TransactionInstruction({
-    keys: [
-      {
-        pubkey: SENDER_KEYPAIR.publicKey, // Sender's account as a signer
-        isSigner: true,
-        isWritable: false,
-      },
-    ],
-    programId: PROGRAM_ID,
-    data: memoData, // Attach the message as data
-  });
 
   const balanceInLamports = await connection.getBalance(
     SENDER_KEYPAIR.publicKey
   );
   console.log({ balanceInLamports, pub: SENDER_KEYPAIR.publicKey.toBase58() });
 
-  // Create a transaction and add the instruction
-  const transaction = new Transaction().add(instruction);
+  const txSignature = await program.methods
+    .postMessage(memoData)
+    .accounts({
+      signerAccount: SENDER_KEYPAIR.publicKey,
+    })
+    .rpc();
 
-  // Send and confirm the transaction
-  const txSignature = await sendAndConfirmTransaction(connection, transaction, [
-    SENDER_KEYPAIR,
-  ]);
   console.log(`Transaction confirmed with signature: ${txSignature}`);
+  return txSignature;
 }
 
 export async function getLastMessage() {
@@ -93,13 +108,15 @@ export async function updateLastMessage(msg: Message) {
   await redis.disconnect();
 }
 
-export async function postTweet(text: string) {
+export async function postTweet(text: string): Promise<string> {
   try {
     // Send a tweet
     const { data } = await twitter.v2.tweet(text);
     console.log("Tweet posted successfully!", data);
+    return data.id;
   } catch (error) {
     console.error("Error posting tweet:", error);
+    return "";
   }
 }
 
@@ -131,12 +148,22 @@ export async function fetchMentions() {
 export async function replyToMention(
   tweetId: string,
   username: string,
+  mentionText: string,
   replyText: string
 ) {
   try {
     // Reply to a specific mention
     const { data } = await twitter.v2.reply(replyText, tweetId);
     console.log(`Replied to @${username} with tweet ID ${data.id}`);
+    await redis.connect();
+    const chat_history = JSON.parse(
+      (await redis.hGet("mentions", username)) ?? "[]"
+    );
+    chat_history.push({ role: "user", content: mentionText });
+    chat_history.push({ role: "blob", content: replyText });
+    chat_history.length > 6 && chat_history.splice(0, 2);
+    await redis.hSet("mentions", username, JSON.stringify(chat_history));
+    await redis.disconnect();
   } catch (error) {
     console.error(`Error replying to @${username}:`, error);
   }
@@ -156,14 +183,21 @@ export async function replyToAllMentions() {
     const username = mention.author_id ?? "";
     console.log(mention.text);
     console.log(`mention: ${mention.author_id}`);
+
+    await redis.connect();
+    const chat_history = (await redis.hGet("mentions", username)) ?? "[]";
+    await redis.disconnect();
+
     const replyText = `${await queryModel(`
-      Now, someone asked you as below:
+      here are chat history:
+      ${chat_history}
+      Now, the user asked you as below:
       "${mention.text}"
 
       Respond this with your current feeling at your current growth level, Blob.
       `)}`;
     console.log(replyText);
-    await replyToMention(tweetId, username, replyText);
+    await replyToMention(tweetId, username, mention.text, replyText);
   }
 }
 
@@ -189,11 +223,11 @@ function generateExcitementPrompt(
 ) {
   const recentInfo = `
     Now, here is latest information:
-    oldTokenPrice: ${oldTokenPrice}
-    newTokenPrice: ${newTokenPrice}
-    oldTreasuryValue: ${oldTreasuryValue}
-    newTreasuryValue: ${newTreasuryValue}
-    MarketCap: ${mcap} 
+    old Blob Price: ${oldTokenPrice}
+    new Blob Price: ${newTokenPrice}
+    old Treasury Value: ${oldTreasuryValue}
+    new Treasury Value: ${newTreasuryValue}
+    Market Cap: ${mcap} 
   `;
 
   return `
@@ -222,8 +256,8 @@ export const queryModel = async (userPrompt: string) => {
   )!;
 
   const chatCompletion = await openai.chat.completions.create({
-    model: "gpt-3.5-turbo-0125",
-    // model: "ft:gpt-3.5-turbo-0125:personal::ASlClHIN",
+    // model: "gpt-3.5-turbo-0125",
+    model: "ft:gpt-3.5-turbo-0125:personal::ASlClHIN",
     messages: [
       {
         role: "user",

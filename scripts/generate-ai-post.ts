@@ -1,9 +1,12 @@
 import { Message as BlobStatus } from "../src/types";
 import {
   calculateGrowth,
+  getBlockNumber,
   getLastMessage,
+  postTweet,
   queryModel,
   redis,
+  submitOnchain,
 } from "../src/utils";
 import axios from "axios";
 import { PairsResponse } from "../src/types";
@@ -21,14 +24,16 @@ const generateAIPost = async () => {
   console.log("price update starting");
   const response: PairsResponse = (
     await axios.get(
-      `https://api.dexscreener.com/latest/dex/pairs/solana/${process.env.PAIR_ADDRESS}`
+      `https://api.dexscreener.com/latest/dex/tokens/${process.env.TOKEN_ADDRESS}`
     )
   ).data;
-  const price = response.pairs?.[0].priceUsd;
+  let price = response.pairs[0].priceUsd;
   console.log({ price });
   if (price) {
     await redis.set("old_token_price", oldTokenPrice);
     await redis.set("token_price", price);
+  } else {
+    price = (await redis.get("token_price")) ?? "0";
   }
 
   // Calculate New Growth
@@ -48,7 +53,7 @@ const generateAIPost = async () => {
     await redis.set("treasury_value", newTreasuryValue);
   }
 
-  const mcap = response.pairs?.[0].fdv;
+  const mcap = response.pairs[0].marketCap ?? 0;
   console.log(mcap);
   if (mcap) {
     await redis.set("mcap", mcap);
@@ -57,29 +62,38 @@ const generateAIPost = async () => {
   await redis.disconnect();
 
   const msgStatus = await queryModel(
-    `Now, speak 2-3 random talks that comes to your mind, from your current feeling with your current growth level tone, Blob.
-    No uppercase or full stop.
+    `Now, speak 2-3 sentences that comes to your mind, from your current feeling with your current growth level tone, Blob.N
+    o uppercase or full stop.
     Also return your emotion/growth status as json.
     Response should be json format, message: message content, emotion: your emotion, growth: growth
     `
   );
   const { message, emotion, growth } = JSON.parse(msgStatus);
 
+  const holders = 250;
+
+  const tweetId = await postTweet(message);
+  const txHash = await submitOnchain(message);
+  const blocknumber = await getBlockNumber();
+
   const status: BlobStatus = {
     message,
     timestamp: Date.now(),
-    tweeted: false,
-    onchain: false,
-    txHash: "",
-    blocknumber: 0,
+    tweeted: true,
+    onchain: true,
+    txHash,
+    blocknumber,
     emotion,
     growth,
+    price,
+    mcap,
+    holders,
+    tweetId,
+    treasury: newTreasuryValue,
   };
-
+  console.log(status);
   await redis.connect();
   await redis.rPush("message_history", JSON.stringify(status));
-
-  console.log(status);
   await redis.disconnect();
 };
 

@@ -1,0 +1,37 @@
+{
+  "address": "FQAYV6Ru2VyZU24EpoY1Ms8nZHTn5qNEdYZopgzhfHkH",
+  "metadata": {
+    "name": "anchor_memo",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "post_message",
+      "discriminator": [214, 50, 100, 209, 38, 34, 7, 76],
+      "accounts": [
+        {
+          "name": "signer_account",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "data",
+          "type": "bytes"
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NotOwner"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidInstructionData"
+    }
+  ]
+}
