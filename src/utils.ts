@@ -3,6 +3,16 @@ import { createClient } from "redis";
 import { TwitterApi } from "twitter-api-v2";
 import dotenv from "dotenv";
 import { BLOB_PROFILE } from "../scripts/blob-info";
+import { Message } from "./types";
+import {
+  Connection,
+  PublicKey,
+  Transaction,
+  TransactionInstruction,
+  sendAndConfirmTransaction,
+  Keypair,
+} from "@solana/web3.js";
+import * as bip39 from "bip39";
 
 dotenv.config();
 
@@ -22,11 +32,65 @@ export const twitter = new TwitterApi({
   accessSecret: process.env.TWITTER_ACCESS_TOKEN_SECRET ?? "",
 });
 
+// Replace these with your values
+const DEVNET_RPC_URL = "https://api.devnet.solana.com";
+const PROGRAM_ID = new PublicKey(process.env.SOLANA_MEMO_PROGRAM_ID ?? "");
+const SENDER_KEYPAIR = getKeypairFromSeed(process.env.SOLANA_SEED_PHRASE ?? "");
+
+function getKeypairFromSeed(seedPhrase: string) {
+  // Validate the seed phrase
+  const seed = bip39.mnemonicToSeedSync(seedPhrase, "");
+  const keypair = Keypair.fromSeed(seed.slice(0, 32));
+
+  return keypair;
+}
+export async function submitOnchain(message: string) {
+  const connection = new Connection(DEVNET_RPC_URL, "confirmed");
+
+  // Convert message to bytes
+  const memoData = Buffer.from(message, "utf-8");
+
+  // Create the transaction instruction
+  const instruction = new TransactionInstruction({
+    keys: [
+      {
+        pubkey: SENDER_KEYPAIR.publicKey, // Sender's account as a signer
+        isSigner: true,
+        isWritable: false,
+      },
+    ],
+    programId: PROGRAM_ID,
+    data: memoData, // Attach the message as data
+  });
+
+  const balanceInLamports = await connection.getBalance(
+    SENDER_KEYPAIR.publicKey
+  );
+  console.log({ balanceInLamports, pub: SENDER_KEYPAIR.publicKey.toBase58() });
+
+  // Create a transaction and add the instruction
+  const transaction = new Transaction().add(instruction);
+
+  // Send and confirm the transaction
+  const txSignature = await sendAndConfirmTransaction(connection, transaction, [
+    SENDER_KEYPAIR,
+  ]);
+  console.log(`Transaction confirmed with signature: ${txSignature}`);
+}
+
 export async function getLastMessage() {
   await redis.connect();
   const lastMessage = await redis.lRange("message_history", -1, -1);
+  const lastMsg: Message = JSON.parse(lastMessage[0]);
   await redis.disconnect();
-  return lastMessage[0];
+  return lastMsg;
+}
+
+export async function updateLastMessage(msg: Message) {
+  await redis.connect();
+  await redis.rPop("message_history");
+  await redis.rPush("message_history", JSON.stringify(msg));
+  await redis.disconnect();
 }
 
 export async function postTweet(text: string) {
@@ -103,8 +167,6 @@ export async function replyToAllMentions() {
   }
 }
 
-export async function submitOnchain(text: string) {}
-
 export async function saveTreasuryBalance(value: number) {
   await redis.connect();
   await redis.set("treasury_value", value);
@@ -122,6 +184,7 @@ function generateExcitementPrompt(
   newTokenPrice: number,
   oldTreasuryValue: number,
   newTreasuryValue: number,
+  mcap: number,
   userPrompt: string
 ) {
   const recentInfo = `
@@ -129,12 +192,13 @@ function generateExcitementPrompt(
     oldTokenPrice: ${oldTokenPrice}
     newTokenPrice: ${newTokenPrice}
     oldTreasuryValue: ${oldTreasuryValue}
-    newTreasuryValue: ${newTreasuryValue} 
+    newTreasuryValue: ${newTreasuryValue}
+    MarketCap: ${mcap} 
   `;
 
   return `
-  ${recentInfo}
   ${BLOB_PROFILE}
+  ${recentInfo}
   ${userPrompt}
   `;
 }
@@ -146,17 +210,20 @@ export const queryModel = async (userPrompt: string) => {
   const currentTreasuryValue = Number((await redis.get("treasury_value")) ?? 0);
   const oldTokenPrice = Number((await redis.get("old_token_price")) ?? 0);
   const currentTokenPrice = Number((await redis.get("token_price")) ?? 0);
+  const mcap = Number((await redis.get("mcap")) ?? 0);
 
   const prompt = generateExcitementPrompt(
     oldTokenPrice,
     currentTokenPrice,
     oldTreasuryValue,
     currentTreasuryValue,
+    mcap,
     userPrompt
   )!;
 
   const chatCompletion = await openai.chat.completions.create({
-    model: "ft:gpt-3.5-turbo-0125:personal::ASlClHIN",
+    model: "gpt-3.5-turbo-0125",
+    // model: "ft:gpt-3.5-turbo-0125:personal::ASlClHIN",
     messages: [
       {
         role: "user",
@@ -182,4 +249,17 @@ export const queryModel = async (userPrompt: string) => {
   await redis.disconnect();
 
   return message;
+};
+
+export const getCurrentEmotion = async () => {
+  await redis.connect();
+  await redis.get("emotion");
+};
+
+export const calculateGrowth = (mcap: number) => {
+  const growthLevels = [1000000, 3000000, 10000000, 25000000];
+  const growthStages = ["baby", "child", "teen", "fatter"];
+
+  const index = growthLevels.findIndex((level) => mcap < level);
+  return growthStages[index];
 };

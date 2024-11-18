@@ -1,4 +1,4 @@
 import { getLastMessage } from "../src/utils";
 (async () => {
-  console.log(await getLastMessage());
+  console.log((await getLastMessage()).message);
 })();

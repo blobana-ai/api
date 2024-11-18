@@ -64,4 +64,8 @@ export type Message = {
   timestamp: number;
   onchain: boolean;
   tweeted: boolean;
+  emotion: string;
+  growth: string;
+  blocknumber: number;
+  txHash: string;
 };

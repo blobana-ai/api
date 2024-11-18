@@ -1,5 +1,10 @@
-import { Message } from "../src/types";
-import { queryModel, redis } from "../src/utils";
+import { Message as BlobStatus } from "../src/types";
+import {
+  calculateGrowth,
+  getLastMessage,
+  queryModel,
+  redis,
+} from "../src/utils";
 import axios from "axios";
 import { PairsResponse } from "../src/types";
 import dotenv from "dotenv";
@@ -43,21 +48,38 @@ const generateAIPost = async () => {
     await redis.set("treasury_value", newTreasuryValue);
   }
 
+  const mcap = response.pairs?.[0].fdv;
+  console.log(mcap);
+  if (mcap) {
+    await redis.set("mcap", mcap);
+  }
+
   await redis.disconnect();
 
-  const message = await queryModel(
-    "Now, say 2-3 random sentences of your current feeling at your current growth level, Blob."
+  const msgStatus = await queryModel(
+    `Now, speak 2-3 random talks that comes to your mind, from your current feeling with your current growth level tone, Blob.
+    No uppercase or full stop.
+    Also return your emotion/growth status as json.
+    Response should be json format, message: message content, emotion: your emotion, growth: growth
+    `
   );
+  const { message, emotion, growth } = JSON.parse(msgStatus);
 
-  const messsageObject: Message = {
+  const status: BlobStatus = {
     message,
     timestamp: Date.now(),
     tweeted: false,
     onchain: false,
+    txHash: "",
+    blocknumber: 0,
+    emotion,
+    growth,
   };
 
   await redis.connect();
-  await redis.rPush("message_history", JSON.stringify(messsageObject));
+  await redis.rPush("message_history", JSON.stringify(status));
+
+  console.log(status);
   await redis.disconnect();
 };
 

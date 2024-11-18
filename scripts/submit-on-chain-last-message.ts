@@ -1,10 +1,9 @@
-import { Message } from "../src/types";
-import { getLastMessage, postTweet, submitOnchain } from "../src/utils";
+import { getLastMessage, submitOnchain, updateLastMessage } from "../src/utils";
 
-async () => {
-  const lastMessage = await getLastMessage();
-  if (lastMessage) {
-    const messageObj: Message = JSON.parse(lastMessage);
+(async () => {
+  const messageObj = await getLastMessage();
+  console.log(messageObj);
+  if (messageObj) {
     if (!messageObj.tweeted) {
       console.log("Last message is not tweeted yet. Skipping.");
       return;
@@ -15,7 +14,8 @@ async () => {
     }
     await submitOnchain(messageObj.message);
     messageObj.onchain = true;
+    await updateLastMessage(messageObj);
   } else {
     console.log("No message");
   }
-};
+})();

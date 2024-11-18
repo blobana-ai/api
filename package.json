@@ -4,13 +4,16 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "tsc && node dist/app.js",
+    "start": "tsc && node dist/src/app.js",
     "dev": "nodemon src/app.ts"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@solana/web3.js": "^1.95.4",
     "axios": "^1.7.7",
+    "bip32": "^5.0.0-rc.0",
+    "bip39": "^3.1.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",

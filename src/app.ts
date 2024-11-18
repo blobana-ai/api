@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { getLastMessage } from "./utils";
 
 const app = express();
 app.use(
@@ -7,18 +8,12 @@ app.use(
     origin: "*",
   })
 );
-const port = 5000;
+const port = 3002;
 
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
   // from Redis db
-  const emotion = "cheer";
-  const happiness = 1;
-  const growth = 1;
-  res.json({
-    emotion,
-    happiness,
-    growth,
-  });
+  const lastMessage = await getLastMessage();
+  res.json(lastMessage);
 });
 
 app.listen(port, () => {
