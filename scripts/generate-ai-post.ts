@@ -55,6 +55,7 @@ const generateAIPost = async () => {
   }
 
   const mcap = response.pairs[0].marketCap ?? 0;
+  console.log({mcap})
   if (mcap) {
     await redis.set("old_mcap", oldMcap);
     await redis.set("mcap", mcap);
@@ -76,6 +77,7 @@ const generateAIPost = async () => {
   console.log({ message, emotion, growth });
 
   const holders = await findHolders(process.env.TOKEN_ADDRESS ?? "");
+  console.log({holders})
 
   const tweetId = await postTweet(message);
   let status: BlobStatus = {

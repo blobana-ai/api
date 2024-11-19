@@ -60,6 +60,7 @@ export async function submitOnchain(message: Message) {
     connection,
     new anchor.Wallet(SENDER_KEYPAIR),
     {
+      commitment: "confirmed",
       preflightCommitment: "processed",
     }
   );
@@ -69,10 +70,7 @@ export async function submitOnchain(message: Message) {
   const program = new anchor.Program(idl, provider);
 
   // Convert message to bytes
-  const memoData = Buffer.from(
-    message.message,
-    "utf-8"
-  );
+  const memoData = Buffer.from(message.message, "utf-8");
 
   const balanceInLamports = await connection.getBalance(
     SENDER_KEYPAIR.publicKey
