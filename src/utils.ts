@@ -1,8 +1,8 @@
 import OpenAI from "openai";
 import { createClient } from "redis";
-import { TwitterApi } from "twitter-api-v2";
+import { TweetV2, TwitterApi } from "twitter-api-v2";
 import dotenv from "dotenv";
-import { BLOB_PROFILE } from "../scripts/blob-info";
+import { BLOB_PROFILE, CONSTRAINTS } from "../scripts/blob-info";
 import { Message } from "./types";
 import {
   Connection,
@@ -141,21 +141,21 @@ export async function fetchMentions() {
   try {
     await redis.connect();
     const since_id = (await redis.get("last_mention_id")) ?? "0";
+    console.log({ since_id });
     await redis.disconnect();
 
     // Fetch recent mentions (limit: 5 for example)
-    const { data: mentions } = await twitter.v2.userMentionTimeline(
+    const { tweets } = await twitter.v2.userMentionTimeline(
       (
         await twitter.v2.me()
       ).data.id,
       {
-        max_results: 5,
         expansions: "author_id",
         since_id,
       }
     );
 
-    return mentions.data;
+    return tweets;
   } catch (error) {
     console.error("Error fetching mentions:", error);
     return [];
@@ -186,6 +186,26 @@ export async function replyToMention(
   }
 }
 
+const calcTweetPoints = (tweet: TweetV2) => {
+  if (!tweet.promoted_metrics) return 0;
+
+  const {
+    impression_count,
+    like_count,
+    retweet_count,
+    url_link_clicks,
+    user_profile_clicks,
+  } = tweet.promoted_metrics;
+
+  return (
+    impression_count * 0.3 +
+    like_count * 0.4 +
+    retweet_count * 0.15 +
+    url_link_clicks * 0.05 +
+    user_profile_clicks * 0.1
+  );
+};
+
 export async function replyToAllMentions() {
   const mentions = await fetchMentions();
   console.log(mentions.length);
@@ -194,7 +214,10 @@ export async function replyToAllMentions() {
     await redis.set("last_mention_id", mentions[0].id);
     await redis.disconnect();
   }
-  for (const mention of mentions) {
+  const onlyTop5 = mentions
+    .sort((a, b) => calcTweetPoints(b) - calcTweetPoints(a))
+    .slice(0, 5);
+  for (const mention of onlyTop5) {
     const tweetId = mention.id;
     console.log(tweetId);
     const username = mention.author_id ?? "";
@@ -235,21 +258,24 @@ function generateExcitementPrompt(
   newTokenPrice: number,
   oldTreasuryValue: number,
   newTreasuryValue: number,
+  oldMcap: number,
   mcap: number,
   userPrompt: string
 ) {
   const recentInfo = `
-    Now, here is latest information:
+    Now, here is current situation:
     old Blob Price: ${oldTokenPrice}
     new Blob Price: ${newTokenPrice}
     old Treasury Value: ${oldTreasuryValue}
     new Treasury Value: ${newTreasuryValue}
-    Market Cap: ${mcap} 
+    old Market Cap: ${oldMcap}
+    Market Cap: ${mcap}
   `;
 
   return `
   ${BLOB_PROFILE}
   ${recentInfo}
+  ${CONSTRAINTS}
   ${userPrompt}
   `;
 }
@@ -261,6 +287,7 @@ export const queryModel = async (userPrompt: string) => {
   const currentTreasuryValue = Number((await redis.get("treasury_value")) ?? 0);
   const oldTokenPrice = Number((await redis.get("old_token_price")) ?? 0);
   const currentTokenPrice = Number((await redis.get("token_price")) ?? 0);
+  const oldMcap = Number((await redis.get("old_mcap")) ?? 0);
   const mcap = Number((await redis.get("mcap")) ?? 0);
 
   const prompt = generateExcitementPrompt(
@@ -268,6 +295,7 @@ export const queryModel = async (userPrompt: string) => {
     currentTokenPrice,
     oldTreasuryValue,
     currentTreasuryValue,
+    oldMcap,
     mcap,
     userPrompt
   )!;

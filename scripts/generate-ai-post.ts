@@ -20,6 +20,7 @@ const generateAIPost = async () => {
   const marketTrending = (await redis.get("market_trending")) ?? "";
   const oldTreasuryValue = Number((await redis.get("treasury_value")) ?? 0);
   const oldTokenPrice = Number((await redis.get("token_price")) ?? 0);
+  const oldMcap = Number((await redis.get("mcap")) ?? 0);
 
   // Calculate New Happiness
   console.log("price update starting");
@@ -55,21 +56,26 @@ const generateAIPost = async () => {
   }
 
   const mcap = response.pairs[0].marketCap ?? 0;
-  console.log(mcap);
   if (mcap) {
+    await redis.set("old_mcap", oldMcap);
     await redis.set("mcap", mcap);
   }
 
   await redis.disconnect();
 
   const msgStatus = await queryModel(
-    `Now, speak 2-3 sentences that comes to your mind, from your current feeling with your current growth level tone, Blob.N
-    o uppercase or full stop.
-    Also return your emotion/growth status as json.
-    Response should be json format, message: message content, emotion: your emotion, growth: growth
+    `Generate a response in 2-3 sentences reflecting your current feeling with a tone that matches your growth level, Blob. Only mention critical status updates if applicable; otherwise, provide general thoughts. Avoid using uppercase letters or periods in the response. Return the output in JSON format with the following structure:
+    {
+      "message": "response content here",
+      "emotion": "your emotion here",
+      "growth": "your growth level here"
+    }
     `
   );
+
   const { message, emotion, growth } = JSON.parse(msgStatus);
+  console.log({ message, emotion, growth });
+
   const holders = await findHolders(process.env.TOKEN_ADDRESS ?? "");
 
   const tweetId = await postTweet(message);
