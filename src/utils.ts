@@ -11,6 +11,7 @@ import {
   TransactionInstruction,
   sendAndConfirmTransaction,
   Keypair,
+  SystemProgram,
 } from "@solana/web3.js";
 import * as bip39 from "bip39";
 import * as anchor from "@coral-xyz/anchor";
@@ -42,7 +43,6 @@ export const RPC_URL =
   process.env.HELIUS_RPC_URL ?? "https://api.mainnet-beta.solana.com";
 
 // Replace these with your values
-const PROGRAM_ID = new PublicKey(process.env.SOLANA_MEMO_PROGRAM_ID ?? "");
 const SENDER_KEYPAIR = getKeypairFromPk(process.env.SOLANA_PRIVATE_KEY ?? "");
 
 const connection = new Connection(RPC_URL, "confirmed");
@@ -64,6 +64,8 @@ export async function submitOnchain(message: Message) {
       preflightCommitment: "processed",
     }
   );
+  const { blockhash } = await connection.getLatestBlockhash();
+
   anchor.setProvider(provider);
 
   // Load the program
@@ -77,13 +79,24 @@ export async function submitOnchain(message: Message) {
   );
   console.log({ balanceInLamports, pub: SENDER_KEYPAIR.publicKey.toBase58() });
 
-  const txSignature = await program.methods
+  const transaction = await program.methods
     .postMessage(memoData)
     .accounts({
       signerAccount: SENDER_KEYPAIR.publicKey,
     })
-    .rpc();
+    .transaction();
+  transaction.recentBlockhash = blockhash;
+  transaction.feePayer = SENDER_KEYPAIR.publicKey;
+  transaction.sign(SENDER_KEYPAIR);
 
+  const txSignature = await connection.sendTransaction(
+    transaction,
+    [SENDER_KEYPAIR],
+    {
+      skipPreflight: false,
+      preflightCommitment: "processed",
+    }
+  );
   console.log(`Transaction confirmed with signature: ${txSignature}`);
   return txSignature;
 }
@@ -206,6 +219,34 @@ const calcTweetPoints = (tweet: TweetV2) => {
   );
 };
 
+export function parseMentions(mentions: any[]) {
+  const tokens: string[] = [];
+  mentions.forEach((mention) => {
+    const addressMatch = mention.text.match(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g); // Solana address regex
+    if (addressMatch) tokens.push(...addressMatch);
+  });
+  return tokens;
+}
+
+export async function buyToken(token: string) {
+  try {
+    const transaction = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: SENDER_KEYPAIR.publicKey,
+        toPubkey: new PublicKey(token), // Assume token is a wallet address for now
+        lamports: 1000000, // Example: Send 0.001 SOL (adjust as needed)
+      })
+    );
+
+    const signature = await connection.sendTransaction(transaction, [
+      SENDER_KEYPAIR,
+    ]);
+    console.log(`Transaction sent for ${token}: ${signature}`);
+  } catch (err) {
+    console.error(`Failed to trade token ${token}:`, err);
+  }
+}
+
 export async function replyToAllMentions() {
   const mentions = await fetchMentions();
   console.log(mentions.length);
@@ -239,6 +280,11 @@ export async function replyToAllMentions() {
     console.log(replyText);
     await replyToMention(tweetId, username, mention.text, replyText);
   }
+
+  // const tokens = parseMentions(mentions);
+  // for (const token of tokens) {
+  //   await buyToken(token)
+  // }
 }
 
 export async function saveTreasuryBalance(value: number) {
