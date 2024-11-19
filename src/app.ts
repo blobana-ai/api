@@ -27,7 +27,7 @@ const getAllMessages: () => Promise<Message[]> = async () => {
       );
     })
     .map((message) => JSON.parse(message) as Message)
-    .sort((a, b) => b.timestamp - a.timestamp);
+    .sort((a, b) => a.timestamp - b.timestamp);
   await redis.disconnect();
   return validMessages;
 };
