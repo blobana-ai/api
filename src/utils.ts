@@ -58,7 +58,7 @@ export async function getBlockNumber() {
   return blockNumber;
 }
 
-export async function submitOnchain(message: string) {
+export async function submitOnchain(message: Message) {
   const connection = new Connection(DEVNET_RPC_URL, "confirmed");
 
   // Set up the provider
@@ -75,7 +75,10 @@ export async function submitOnchain(message: string) {
   const program = new anchor.Program(idl, provider);
 
   // Convert message to bytes
-  const memoData = Buffer.from(message, "utf-8");
+  const memoData = Buffer.from(
+    `Message: ${message.message}\nEmotion: ${message.emotion}\nToken: $${message.price}\nMCap: ${message.mcap}\nHolders: ${message.holders}\nTreasury: ${message.treasury}`,
+    "utf-8"
+  );
 
   const balanceInLamports = await connection.getBalance(
     SENDER_KEYPAIR.publicKey
@@ -296,4 +299,43 @@ export const calculateGrowth = (mcap: number) => {
 
   const index = growthLevels.findIndex((level) => mcap < level);
   return growthStages[index];
+};
+
+export const findHolders = async (mint: string) => {
+  // Pagination logic
+  let page = 1,
+    holders = 0;
+  // allOwners will store all the addresses that hold the token
+
+  while (true) {
+    const response = await fetch(process.env.HELIUS_RPC_URL ?? "", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "getTokenAccounts",
+        id: "helius-test",
+        params: {
+          page: page,
+          limit: 1000,
+          displayOptions: {},
+          //mint address for the token we are interested in
+          mint,
+        },
+      }),
+    });
+    const data = await response.json();
+    // Pagination logic.
+    if (!data.result || data.result.token_accounts.length === 0) {
+      console.log(`No more results. Total pages: ${page - 1}`);
+      break;
+    }
+    // Adding unique owners to a list of token owners.
+    holders += data.result.token_accounts.length;
+    page++;
+  }
+
+  return holders;
 };

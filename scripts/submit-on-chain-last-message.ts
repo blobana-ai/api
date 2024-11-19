@@ -12,7 +12,7 @@ import { getLastMessage, submitOnchain, updateLastMessage } from "../src/utils";
       console.log("Last message is already on chain. Skipping.");
       return;
     }
-    await submitOnchain(messageObj.message);
+    await submitOnchain(messageObj);
     messageObj.onchain = true;
     await updateLastMessage(messageObj);
   } else {

@@ -1,6 +1,7 @@
 import { Message as BlobStatus } from "../src/types";
 import {
   calculateGrowth,
+  findHolders,
   getBlockNumber,
   getLastMessage,
   postTweet,
@@ -46,11 +47,11 @@ const generateAIPost = async () => {
   //     },
   //   }
   // );
-  const newTreasuryValue = 1000;
+  const newTreasuryValue = { totalValue: 500 };
   console.log({ newTreasuryValue });
   if (newTreasuryValue) {
     await redis.set("old_treasury_value", oldTreasuryValue);
-    await redis.set("treasury_value", newTreasuryValue);
+    await redis.set("treasury_value", newTreasuryValue.totalValue);
   }
 
   const mcap = response.pairs[0].marketCap ?? 0;
@@ -69,19 +70,16 @@ const generateAIPost = async () => {
     `
   );
   const { message, emotion, growth } = JSON.parse(msgStatus);
-
-  const holders = 250;
+  const holders = await findHolders(process.env.TOKEN_ADDRESS ?? "");
 
   const tweetId = await postTweet(message);
-  const txHash = await submitOnchain(message);
   const blocknumber = await getBlockNumber();
-
-  const status: BlobStatus = {
+  let status: BlobStatus = {
     message,
     timestamp: Date.now(),
     tweeted: true,
     onchain: true,
-    txHash,
+    txHash: "",
     blocknumber,
     emotion,
     growth,
@@ -89,8 +87,10 @@ const generateAIPost = async () => {
     mcap,
     holders,
     tweetId,
-    treasury: newTreasuryValue,
+    treasury: newTreasuryValue.totalValue,
   };
+  status.txHash = await submitOnchain(status);
+
   console.log(status);
   await redis.connect();
   await redis.rPush("message_history", JSON.stringify(status));
