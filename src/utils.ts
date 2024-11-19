@@ -42,6 +42,8 @@ const DEVNET_RPC_URL = "https://api.devnet.solana.com";
 const PROGRAM_ID = new PublicKey(process.env.SOLANA_MEMO_PROGRAM_ID ?? "");
 const SENDER_KEYPAIR = getKeypairFromSeed(process.env.SOLANA_SEED_PHRASE ?? "");
 
+const connection = new Connection(DEVNET_RPC_URL, "confirmed");
+
 function getKeypairFromSeed(seedPhrase: string) {
   // Validate the seed phrase
   const seed = bip39.mnemonicToSeedSync(seedPhrase, "");
@@ -50,17 +52,7 @@ function getKeypairFromSeed(seedPhrase: string) {
   return keypair;
 }
 
-export async function getBlockNumber() {
-  const connection = new Connection(DEVNET_RPC_URL, "confirmed");
-
-  const blockNumber = await connection.getBlockHeight();
-
-  return blockNumber;
-}
-
 export async function submitOnchain(message: Message) {
-  const connection = new Connection(DEVNET_RPC_URL, "confirmed");
-
   // Set up the provider
   const provider = new anchor.AnchorProvider(
     connection,
@@ -94,6 +86,28 @@ export async function submitOnchain(message: Message) {
 
   console.log(`Transaction confirmed with signature: ${txSignature}`);
   return txSignature;
+}
+
+export async function getBlockNumberFromTxHash(txHash: string) {
+  // Initialize Solana connection
+  try {
+    // Fetch transaction details using the transaction hash
+    const transaction = await connection.getTransaction(txHash, {
+      maxSupportedTransactionVersion: 0,
+    });
+
+    if (!transaction) {
+      console.error("Transaction not found!");
+      return null;
+    }
+
+    // Extract the slot from the transaction
+    const slot = transaction.slot;
+    return slot;
+  } catch (error) {
+    console.error("Error fetching block number:", error);
+    return null;
+  }
 }
 
 export async function getLastMessage() {

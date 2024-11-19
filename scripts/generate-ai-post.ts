@@ -2,7 +2,7 @@ import { Message as BlobStatus } from "../src/types";
 import {
   calculateGrowth,
   findHolders,
-  getBlockNumber,
+  getBlockNumberFromTxHash,
   getLastMessage,
   postTweet,
   queryModel,
@@ -73,14 +73,13 @@ const generateAIPost = async () => {
   const holders = await findHolders(process.env.TOKEN_ADDRESS ?? "");
 
   const tweetId = await postTweet(message);
-  const blocknumber = await getBlockNumber();
   let status: BlobStatus = {
     message,
     timestamp: Date.now(),
     tweeted: true,
     onchain: true,
     txHash: "",
-    blocknumber,
+    blocknumber: 0,
     emotion,
     growth,
     price,
@@ -90,6 +89,7 @@ const generateAIPost = async () => {
     treasury: newTreasuryValue.totalValue,
   };
   status.txHash = await submitOnchain(status);
+  status.blocknumber = (await getBlockNumberFromTxHash(status.txHash)) || 0;
 
   console.log(status);
   await redis.connect();

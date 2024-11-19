@@ -22,7 +22,8 @@ const getAllMessages: () => Promise<Message[]> = async () => {
         messageObj.tweetId &&
         messageObj.onchain &&
         messageObj.txHash &&
-        messageObj.holders
+        messageObj.holders &&
+        messageObj.blocknumber
       );
     })
     .map((message) => JSON.parse(message) as Message)
