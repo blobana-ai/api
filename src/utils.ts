@@ -38,12 +38,14 @@ export const twitter = new TwitterApi({
   accessSecret: process.env.TWITTER_ACCESS_TOKEN_SECRET ?? "",
 });
 
+export const RPC_URL =
+  process.env.HELIUS_RPC_URL ?? "https://api.mainnet-beta.solana.com";
+
 // Replace these with your values
-const DEVNET_RPC_URL = "https://api.devnet.solana.com";
 const PROGRAM_ID = new PublicKey(process.env.SOLANA_MEMO_PROGRAM_ID ?? "");
 const SENDER_KEYPAIR = getKeypairFromPk(process.env.SOLANA_PRIVATE_KEY ?? "");
 
-const connection = new Connection(DEVNET_RPC_URL, "confirmed");
+const connection = new Connection(RPC_URL, "confirmed");
 
 function getKeypairFromPk(privateKeyString: string) {
   // Validate the seed phrase
@@ -68,7 +70,7 @@ export async function submitOnchain(message: Message) {
 
   // Convert message to bytes
   const memoData = Buffer.from(
-    `Message: ${message.message}\nEmotion: ${message.emotion}\nToken: $${message.price}\nMCap: ${message.mcap}\nHolders: ${message.holders}\nTreasury: ${message.treasury}`,
+    message.message,
     "utf-8"
   );
 
