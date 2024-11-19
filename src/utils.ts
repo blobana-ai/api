@@ -17,6 +17,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Idl } from "@coral-xyz/anchor";
 
 import idlJson from "./memo-idl.json";
+import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 const idl = idlJson as Idl;
 
 dotenv.config();
@@ -40,15 +41,14 @@ export const twitter = new TwitterApi({
 // Replace these with your values
 const DEVNET_RPC_URL = "https://api.devnet.solana.com";
 const PROGRAM_ID = new PublicKey(process.env.SOLANA_MEMO_PROGRAM_ID ?? "");
-const SENDER_KEYPAIR = getKeypairFromSeed(process.env.SOLANA_SEED_PHRASE ?? "");
+const SENDER_KEYPAIR = getKeypairFromPk(process.env.SOLANA_PRIVATE_KEY ?? "");
 
 const connection = new Connection(DEVNET_RPC_URL, "confirmed");
 
-function getKeypairFromSeed(seedPhrase: string) {
+function getKeypairFromPk(privateKeyString: string) {
   // Validate the seed phrase
-  const seed = bip39.mnemonicToSeedSync(seedPhrase, "");
-  const keypair = Keypair.fromSeed(seed.slice(0, 32));
-
+  let secretKey = bs58.decode(privateKeyString);
+  const keypair = Keypair.fromSecretKey(secretKey);
   return keypair;
 }
 

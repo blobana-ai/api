@@ -39,16 +39,15 @@ const generateAIPost = async () => {
   }
 
   // Calculate New Growth
-  // const { data: newTreasuryValue } = await axios.get(
-  //   `https://solana-wallet-portfolio-balance-api.p.rapidapi.com/user/total_balance?address=${process.env.TREASURY_ADDRESS}`,
-  //   {
-  //     headers: {
-  //       "x-rapidapi-key": process.env.RAPID_API_KEY,
-  //       "x-rapidapi-host": "solana-wallet-portfolio-balance-api.p.rapidapi.com",
-  //     },
-  //   }
-  // );
-  const newTreasuryValue = { totalValue: 500 };
+  const { data: newTreasuryValue } = await axios.get(
+    `https://solana-wallet-portfolio-balance-api.p.rapidapi.com/user/total_balance?address=${process.env.TREASURY_ADDRESS}`,
+    {
+      headers: {
+        "x-rapidapi-key": process.env.RAPID_API_KEY,
+        "x-rapidapi-host": "solana-wallet-portfolio-balance-api.p.rapidapi.com",
+      },
+    }
+  );
   console.log({ newTreasuryValue });
   if (newTreasuryValue) {
     await redis.set("old_treasury_value", oldTreasuryValue);
