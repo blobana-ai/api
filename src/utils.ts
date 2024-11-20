@@ -104,9 +104,12 @@ export async function submitOnchain(message: Message) {
 export async function getBlockNumberFromTxHash(txHash: string) {
   // Initialize Solana connection
   try {
+    // Wait for the network to finalize transaction details
+    await new Promise((resolve) => setTimeout(resolve, 15000));
     // Fetch transaction details using the transaction hash
     const transaction = await connection.getTransaction(txHash, {
       maxSupportedTransactionVersion: 0,
+      commitment: "confirmed",
     });
 
     if (!transaction) {
