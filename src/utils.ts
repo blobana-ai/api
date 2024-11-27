@@ -3,7 +3,7 @@ import { createClient } from "redis";
 import { TweetV2, TwitterApi } from "twitter-api-v2";
 import dotenv from "dotenv";
 import { BLOB_PROFILE, CONSTRAINTS } from "../scripts/blob-info";
-import { Message } from "./types";
+import { Message, PairsResponse } from "./types";
 import {
   Connection,
   PublicKey,
@@ -12,6 +12,8 @@ import {
   sendAndConfirmTransaction,
   Keypair,
   SystemProgram,
+  VersionedTransaction,
+  VersionedTransactionResponse,
 } from "@solana/web3.js";
 import * as bip39 from "bip39";
 import * as anchor from "@coral-xyz/anchor";
@@ -19,6 +21,8 @@ import { Idl } from "@coral-xyz/anchor";
 
 import idlJson from "./memo-idl.json";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
+import axios from "axios";
+import { executeTransaction } from "./raydium";
 const idl = idlJson as Idl;
 
 dotenv.config();
@@ -28,6 +32,9 @@ const configuration = {
 };
 export const openai = new OpenAI(configuration);
 export const redis = createClient({
+  password: process.env.REDIS_PASSWORD,
+});
+export const redisSubscriber = createClient({
   password: process.env.REDIS_PASSWORD,
 });
 
@@ -105,12 +112,18 @@ export async function getBlockNumberFromTxHash(txHash: string) {
   // Initialize Solana connection
   try {
     // Wait for the network to finalize transaction details
-    await new Promise((resolve) => setTimeout(resolve, 15000));
-    // Fetch transaction details using the transaction hash
-    const transaction = await connection.getTransaction(txHash, {
-      maxSupportedTransactionVersion: 0,
-      commitment: "confirmed",
-    });
+    let transaction: VersionedTransactionResponse | null = null;
+    for (let i = 0; i < 10; i++) {
+      transaction = await connection.getTransaction(txHash, {
+        maxSupportedTransactionVersion: 0,
+        commitment: "confirmed",
+      });
+      if (transaction) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+    }
+    // Fetch transaction deta
 
     if (!transaction) {
       console.error("Transaction not found!");
@@ -230,21 +243,22 @@ export function parseMentions(mentions: any[]) {
   });
   return tokens;
 }
-
+//
 export async function buyToken(token: string) {
   try {
-    const transaction = new Transaction().add(
-      SystemProgram.transfer({
-        fromPubkey: SENDER_KEYPAIR.publicKey,
-        toPubkey: new PublicKey(token), // Assume token is a wallet address for now
-        lamports: 1000000, // Example: Send 0.001 SOL (adjust as needed)
-      })
-    );
-
-    const signature = await connection.sendTransaction(transaction, [
-      SENDER_KEYPAIR,
-    ]);
-    console.log(`Transaction sent for ${token}: ${signature}`);
+    const response: PairsResponse = (
+      await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${token}`)
+    ).data;
+    let pair = response.pairs[0];
+    if (pair && pair.dexId == "raydium") {
+      await executeTransaction(
+        SENDER_KEYPAIR,
+        connection,
+        0.1,
+        token,
+        pair.pairAddress
+      );
+    }
   } catch (err) {
     console.error(`Failed to trade token ${token}:`, err);
   }
@@ -284,10 +298,13 @@ export async function replyToAllMentions() {
     await replyToMention(tweetId, username, mention.text, replyText);
   }
 
-  // const tokens = parseMentions(mentions);
-  // for (const token of tokens) {
-  //   await buyToken(token)
-  // }
+  const tokens = parseMentions(mentions);
+  const lastMsg = await getLastMessage();
+  if (lastMsg.emotion == "happy" || lastMsg.emotion == "curious") {
+    for (const token of tokens) {
+      await buyToken(token);
+    }
+  }
 }
 
 export async function saveTreasuryBalance(value: number) {
@@ -328,7 +345,90 @@ function generateExcitementPrompt(
   ${userPrompt}
   `;
 }
+export const updateMarketInfo = async () => {
+  await redis.connect();
+  const marketTrending = (await redis.get("market_trending")) ?? "";
+  const oldTreasuryValue = Number((await redis.get("treasury_value")) ?? 0);
+  const oldTokenPrice = Number((await redis.get("token_price")) ?? 0);
+  const oldMcap = Number((await redis.get("mcap")) ?? 0);
 
+  // Calculate New Happiness
+  console.log("price update starting");
+  const response: PairsResponse = (
+    await axios.get(
+      `https://api.dexscreener.com/latest/dex/tokens/${process.env.TOKEN_ADDRESS}`
+    )
+  ).data;
+  let price = response.pairs[0].priceUsd;
+  console.log({ price });
+  if (price) {
+    await redis.set("old_token_price", oldTokenPrice);
+    await redis.set("token_price", price);
+  } else {
+    price = (await redis.get("token_price")) ?? "0";
+  }
+
+  // Calculate New Growth
+  const { data: newTreasuryValue } = await axios.get(
+    `https://solana-wallet-portfolio-balance-api.p.rapidapi.com/user/total_balance?address=${process.env.TREASURY_ADDRESS}`,
+    {
+      headers: {
+        "x-rapidapi-key": process.env.RAPID_API_KEY,
+        "x-rapidapi-host": "solana-wallet-portfolio-balance-api.p.rapidapi.com",
+      },
+    }
+  );
+  console.log({ newTreasuryValue });
+  if (newTreasuryValue) {
+    await redis.set("old_treasury_value", oldTreasuryValue);
+    await redis.set("treasury_value", newTreasuryValue.totalValue);
+  }
+
+  const mcap = response.pairs[0].marketCap ?? 0;
+  console.log({ mcap });
+  if (mcap) {
+    await redis.set("old_mcap", oldMcap);
+    await redis.set("mcap", mcap);
+  }
+
+  await redis.disconnect();
+};
+
+export const submitStatus = async (
+  message: string,
+  emotion: string,
+  growth: string
+) => {
+  const holders = await findHolders(process.env.TOKEN_ADDRESS ?? "");
+  console.log({ holders });
+
+  await redis.connect();
+  let status: Message = {
+    message,
+    timestamp: Date.now(),
+    tweeted: true,
+    onchain: true,
+    txHash: "",
+    blocknumber: 0,
+    emotion,
+    growth,
+    price: (await redis.get("token_price")) ?? "0",
+    mcap: Number(await redis.get("mcap")) ?? 0,
+    holders,
+    tweetId: "",
+    treasury: Number(await redis.get("treasury_value")) ?? 0,
+  };
+  await redis.disconnect();
+
+  status.txHash = await submitOnchain(status);
+  status.blocknumber = (await getBlockNumberFromTxHash(status.txHash)) || 0;
+  status.tweetId = await postTweet(message);
+
+  console.log(status);
+  await redis.connect();
+  await redis.rPush("message_history", JSON.stringify(status));
+  await redis.disconnect();
+};
 export const queryModel = async (userPrompt: string) => {
   await redis.connect();
   const marketTrending = (await redis.get("market_trending")) ?? "";
@@ -350,8 +450,8 @@ export const queryModel = async (userPrompt: string) => {
   )!;
 
   const chatCompletion = await openai.chat.completions.create({
-    // model: "gpt-3.5-turbo-0125",
-    model: "ft:gpt-3.5-turbo-0125:personal::ASlClHIN",
+    model: "gpt-3.5-turbo-0125",
+    // model: "ft:gpt-3.5-turbo-0125:personal::ASlClHIN",
     messages: [
       {
         role: "user",
